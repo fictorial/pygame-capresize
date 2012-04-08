@@ -18,7 +18,7 @@ COPYRIGHT = 'Copyright (C) 2012 Fictorial LLC'
 __version__ = '1.0.0'
 
 
-def resize_with_caps(src, dst_size, cap_size=None, grow='scale'):
+def resize_with_caps(src, dst_size, cap_insets=None, grow='scale'):
     """Stretch nine-grid source surface to surface of desired size.
 
     src
@@ -27,17 +27,18 @@ def resize_with_caps(src, dst_size, cap_size=None, grow='scale'):
 
     dst_size
 
-        The destination surface size (width, height).
-        If height is 0 maintains aspect ratio of source surface.
+        The destination surface size (width, height).  If height is
+        0 maintains aspect ratio of source surface.
 
-    cap_size
+    cap_insets
 
-        The size of the end caps (width, height).
+        The size of each of the 4 end caps (left, top, right,
+        bottom).
 
-        If None, the cap width is taken as 1/2 the source surface
-        width and 1/2 the source surface height.  In this case, it
-        is expected that the source surface has an odd width and
-        height (e.g. 13) and the middle "stretchy part" is 1x1.
+        If None, the left and right end caps are taken as 1/2 the
+        source surface width; and, the top and bottom end caps are
+        taken as 1/2 the source surface height. In this case it's
+        expected that the center stretchy part is 1x1 pixel.
 
     grow
 
@@ -60,16 +61,19 @@ def resize_with_caps(src, dst_size, cap_size=None, grow='scale'):
     Returns the destination surface.
     """
 
-    # s:source, c:cap, d:destination,
-    # m:middle/stretchable portion, w:width, h:height
+    # s:source, d:destination,
+    # c:cap, m:middle/stretchable portion
+    # l:left, t:top, b:bottom, r:right
+    # w:width, h:height
 
     sw, sh = src.get_size()
 
-    if cap_size is None:
+    if cap_insets is None:
         assert sw % 2 == 1 and sh % 2 == 1
-        cw, ch = sw // 2, sh // 2
+        cl, cr = sw // 2
+        ct, cb = sh // 2
     else:
-        cw, ch = cap_size
+        cl, ct, cr, cb = cap_insets
 
     dw, dh = dst_size
     if dh == 0:
@@ -77,33 +81,35 @@ def resize_with_caps(src, dst_size, cap_size=None, grow='scale'):
 
     dst = pygame.surface.Surface((dw, dh), pygame.SRCALPHA, 32)
 
-    smw, smh = sw - cw * 2, sh - ch * 2
-    dmw, dmh = dw - cw * 2, dh - ch * 2
+    smw = sw - cl - cr
+    smh = sh - cb - ct
+    dmw = dw - cl - cr
+    dmh = dh - cb - ct
 
     r = pygame.Rect
 
     # render caps: A, C, G, I in that order
 
-    dst.blit(src, r(0, 0, cw, ch), r(0, 0, cw, ch))
-    dst.blit(src, r(dw - cw, 0, cw, ch), r(sw - cw, 0, cw, ch))
-    dst.blit(src, r(0, dh - ch, cw, ch), r(0, sh - ch, cw, ch))
-    dst.blit(src, r(dw - cw, dh - ch, cw, ch), r(sw - cw, sh - ch, cw, ch))
+    dst.blit(src, r(0, 0, cl, ct), r(0, 0, cl, ct))
+    dst.blit(src, r(dw - cr, 0, cr, ct), r(sw - cr, 0, cr, ct))
+    dst.blit(src, r(0, dh - cb, cl, cb), r(0, sh - cb, cl, cb))
+    dst.blit(src, r(dw - cr, dh - cb, cr, cb), r(sw - cr, sh - cb, cr, cb))
 
     # extract subsurfaces from src for growable portions
 
-    B = src.subsurface(r(cw, 0, smw, ch))
-    D = src.subsurface(r(0, ch, cw, smh))
-    E = src.subsurface(r(cw, ch, smw, smh))
-    F = src.subsurface(r(sw - cw, ch, cw, smh))
-    H = src.subsurface(r(cw, sh - ch, smw, ch))
+    B = src.subsurface(r(cl, 0, smw, ct))
+    D = src.subsurface(r(0, ct, cl, smh))
+    E = src.subsurface(r(cl, ct, smw, smh))
+    F = src.subsurface(r(sw - cr, ct, cr, smh))
+    H = src.subsurface(r(cl, sh - cb, smw, cb))
 
     if grow == 'scale' or grow == 'stretch':
         sc = pygame.transform.smoothscale
-        dst.blit(sc(B, (dmw, ch)), (cw, 0))
-        dst.blit(sc(D, (cw, dmh)), (0, ch))
-        dst.blit(sc(E, (dmw, dmh)), (cw, ch))
-        dst.blit(sc(F, (cw, dmh)), (dw - cw, ch))
-        dst.blit(sc(H, (dmw, ch)), (cw, dh - ch))
+        dst.blit(sc(B, (dmw, ct)), (cl, 0))
+        dst.blit(sc(D, (cl, dmh)), (0, ct))
+        dst.blit(sc(E, (dmw, dmh)), (cl, ct))
+        dst.blit(sc(F, (cr, dmh)), (dw - cr, ct))
+        dst.blit(sc(H, (dmw, cb)), (cl, dh - cb))
     elif grow == 'tile':
         n_across = dmw // smw
         rem_px_across = dmw - n_across * smw
@@ -111,37 +117,37 @@ def resize_with_caps(src, dst_size, cap_size=None, grow='scale'):
         n_down = dmh // smh
         rem_px_down = dmh - n_down * smh
 
-        def render_across(tile, y):
-            x = cw
+        def render_across(tile, y, h):
+            x = cl
             for i in range(int(n_across)):
                 dst.blit(tile, (x, y))
                 x += smw
             if rem_px_across > 0:
-                dst.blit(tile, (x, y), r(0, 0, rem_px_across, ch))
+                dst.blit(tile, (x, y), r(0, 0, rem_px_across, h))
 
-        render_across(B, 0)
-        render_across(H, dh - smh)
+        render_across(B, 0, ct)
+        render_across(H, dh - smh, cb)
 
-        def render_down(tile, x):
-            y = ch
+        def render_down(tile, x, w):
+            y = ct
             for i in range(int(n_down)):
                 dst.blit(tile, (x, y))
                 y += smh
             if rem_px_down > 0:
-                dst.blit(tile, (x, y), r(0, 0, cw, rem_px_down))
+                dst.blit(tile, (x, y), r(0, 0, w, rem_px_down))
 
-        render_down(D, 0)
-        render_down(F, dw - smw)
+        render_down(D, 0, cl)
+        render_down(F, dw - smw, cr)
 
-        y = ch
+        y = ct
         for i in range(int(n_down)):
-            render_across(E, y)
+            render_across(E, y, smh)
             y += smh
 
         if rem_px_down > 0:
-            x = cw
+            x = cl
             for i in range(int(n_across)):
-                dst.blit(E, (x, y), r(0, 0, cw, rem_px_down))
+                dst.blit(E, (x, y), r(0, 0, smw, rem_px_down))
                 x += smw
             if rem_px_across > 0:
                 dst.blit(E, (x, y), r(0, 0, rem_px_across, rem_px_down))
@@ -157,19 +163,24 @@ if __name__ == '__main__':
 
     template = pygame.image.load('template.png').convert_alpha()
 
-    cap_size = (24, 24)
+    template_cap_insets = (24, 24, 24, 24)
 
     template_tiled = resize_with_caps(template, (24 * 15, 24 * 9),
-                                      cap_size, 'tile')
+                                      template_cap_insets, 'tile')
 
     template_tiled1 = resize_with_caps(template, (24 * 7 + 4, 24 * 6 + 6),
-                                       cap_size, 'tile')
+                                       template_cap_insets, 'tile')
 
     template_stretched = resize_with_caps(template, (24 * 15, 24 * 9),
-                                          cap_size, 'stretch')
+                                          template_cap_insets, 'stretch')
 
-    button = pygame.image.load('button.png').convert_alpha()
-    button_stretched = resize_with_caps(button, (450, 120), (10, 9), 'scale')
+    #button = pygame.image.load('button.png').convert_alpha()
+    #button_stretched = resize_with_caps(button, (450, 120), (10, 9), 'scale')
+
+    button = pygame.image.load('textfield.png').convert_alpha()
+    button_cap_insets = (1, 6, 1, 4)
+    button_stretched = resize_with_caps(button, (450, 120),
+                                        button_cap_insets, 'scale')
 
     clock = pygame.time.Clock()
     running = True
